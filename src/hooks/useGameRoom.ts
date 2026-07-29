@@ -1,44 +1,32 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import type { Player, PlayingState } from '../types';
+import type { Player, TaskTypeKey } from '../types';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 interface UseGameRoomReturn {
   players: Player[];
-  roomGameState: PlayingState;
-  /** Increments whenever a 'reset_votes' broadcast is received. Watch this in the page to clear local votes. */
+  revealTick: number;
+  nextRoundTick: number;
   resetVotesTick: number;
-  /** Track (or re-track) this player's presence with their latest data. */
+  remoteTaskType: TaskTypeKey | null;
   trackPlayer: (player: Player) => Promise<void>;
-  /** Broadcast a game-state transition to every client in the room. */
-  broadcastGameState: (state: PlayingState) => void;
-  /** Broadcast a vote-reset event (clears votes without changing game state). */
+  broadcastReveal: () => void;
+  broadcastNextRound: () => void;
   broadcastResetVotes: () => void;
+  broadcastTaskType: (taskType: TaskTypeKey) => void;
 }
 
-/**
- * Manages Supabase Realtime for a single game room.
- *
- * Architecture:
- *  - Presence  → player list (join / leave / vote updates)
- *  - Broadcast → game-state transitions (reveal / restart / reset votes)
- *
- * `playerId` is used as the Supabase Presence channel key.
- * Using the same stable UUID across all browser tabs of the same user means
- * Supabase treats them as ONE presence slot (last-write-wins), completely
- * eliminating duplicate avatars at the poker table.
- *
- * Falls back to local-only mode when Supabase credentials are absent.
- */
 export function useGameRoom(roomId: string, playerId: string | null): UseGameRoomReturn {
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [roomGameState, setRoomGameState] = useState<PlayingState>('playing');
+  const [players,        setPlayers]        = useState<Player[]>([]);
+  const [revealTick,     setRevealTick]     = useState(0);
+  const [nextRoundTick,  setNextRoundTick]  = useState(0);
   const [resetVotesTick, setResetVotesTick] = useState(0);
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const subscribedRef = useRef(false);
+  const [remoteTaskType, setRemoteTaskType] = useState<TaskTypeKey | null>(null);
+
+  const channelRef      = useRef<RealtimeChannel | null>(null);
+  const subscribedRef   = useRef(false);
   const pendingTrackRef = useRef<Player | null>(null);
 
-  // ── Rebuild players[] from the full presence snapshot ─────────────────────
   const rebuildPlayers = useCallback((channel: RealtimeChannel) => {
     const state = channel.presenceState<{ player: Player }>();
     const byId = new Map<string, Player>();
@@ -54,44 +42,58 @@ export function useGameRoom(roomId: string, playerId: string | null): UseGameRoo
     setPlayers(Array.from(byId.values()));
   }, []);
 
-  // ── Channel setup — deferred until playerId is available ──────────────────
   useEffect(() => {
-    if (!roomId || !playerId) return;
-    if (!supabase) return;
+    if (!roomId || !playerId || !supabase) return;
 
+    /**
+     * WHY self: false
+     * ───────────────
+     * We no longer rely on self-receive to drive local state changes.
+     * Instead every broadcast function fires its tick setter IMMEDIATELY
+     * (before hitting the network), then sends the event so other clients
+     * can do the same. This eliminates any dependency on WebSocket round-trip
+     * timing and makes the organizer's UI update synchronously on click.
+     */
     const channel = supabase.channel(`game-room:${roomId}`, {
       config: {
-        broadcast: { self: true },
-        // Stable presence key = player UUID → all tabs of same user share one slot
-        presence: { key: playerId },
+        broadcast: { self: false },
+        presence:  { key: playerId },
       },
     });
 
     channelRef.current = channel;
 
-    // Presence listeners
     channel
       .on('presence', { event: 'sync' },  () => rebuildPlayers(channel))
       .on('presence', { event: 'join' },  () => rebuildPlayers(channel))
       .on('presence', { event: 'leave' }, () => rebuildPlayers(channel));
 
-    // Broadcast: game-state transitions
-    channel.on('broadcast', { event: 'game_state_update' }, ({ payload }) => {
-      const newState = payload?.state as PlayingState | undefined;
-      if (newState) setRoomGameState(newState);
+    // These listeners handle events arriving FROM OTHER CLIENTS only.
+    // The sender's own tick is incremented locally before sending (see below).
+    channel.on('broadcast', { event: 'reveal'      }, () => {
+      console.log('[useGameRoom] received reveal from peer');
+      setRevealTick(n => n + 1);
     });
-
-    // Broadcast: vote reset (clear votes, stay in 'playing')
+    channel.on('broadcast', { event: 'next_round'  }, () => {
+      console.log('[useGameRoom] received next_round from peer');
+      setNextRoundTick(n => n + 1);
+    });
     channel.on('broadcast', { event: 'reset_votes' }, () => {
-      setResetVotesTick((n) => n + 1);
+      console.log('[useGameRoom] received reset_votes from peer');
+      setResetVotesTick(n => n + 1);
+    });
+    channel.on('broadcast', { event: 'task_type_update' }, ({ payload }) => {
+      const tt = payload?.taskType as TaskTypeKey | undefined;
+      if (tt) setRemoteTaskType(tt);
     });
 
-    // Subscribe — track immediately on SUBSCRIBED
     channel.subscribe((status) => {
+      console.log('[useGameRoom] channel status:', status);
       if (status === 'SUBSCRIBED') {
         subscribedRef.current = true;
         if (pendingTrackRef.current) {
           channel.track({ player: pendingTrackRef.current }).catch(console.error);
+          pendingTrackRef.current = null;
         }
       }
     });
@@ -103,14 +105,12 @@ export function useGameRoom(roomId: string, playerId: string | null): UseGameRoo
     };
   }, [roomId, playerId, rebuildPlayers]);
 
-  // ── Actions ────────────────────────────────────────────────────────────────
-
   const trackPlayer = useCallback(async (player: Player): Promise<void> => {
     if (!supabase) {
-      setPlayers((prev) => {
-        const exists = prev.some((p) => p.id === player.id);
+      setPlayers(prev => {
+        const exists = prev.some(p => p.id === player.id);
         return exists
-          ? prev.map((p) => (p.id === player.id ? player : p))
+          ? prev.map(p => p.id === player.id ? player : p)
           : [...prev, player];
       });
       return;
@@ -121,26 +121,58 @@ export function useGameRoom(roomId: string, playerId: string | null): UseGameRoo
     }
   }, []);
 
-  const broadcastGameState = useCallback((state: PlayingState) => {
-    if (supabase && channelRef.current) {
+  /**
+   * sendToPeers — sends a broadcast event to all OTHER clients.
+   * The caller is responsible for updating their OWN state immediately
+   * (before calling this), so there is no dependency on self-receive.
+   */
+  const sendToPeers = useCallback((event: string, payload: Record<string, unknown> = {}) => {
+    if (supabase && channelRef.current && subscribedRef.current) {
       channelRef.current
-        .send({ type: 'broadcast', event: 'game_state_update', payload: { state } })
-        .catch(console.error);
-    } else {
-      setRoomGameState(state);
+        .send({ type: 'broadcast', event, payload })
+        .catch((err) => console.error(`[useGameRoom] peer broadcast '${event}' failed:`, err));
     }
+    // If not connected, nothing to do — the tick was already set locally.
   }, []);
+
+  /**
+   * PATTERN: fire local tick first (synchronous, immediate), then broadcast
+   * to peers. The organizer's UI reacts instantly. Peers react when they
+   * receive the message. No WebSocket round-trip on the critical path.
+   */
+  const broadcastReveal = useCallback(() => {
+    console.log('[useGameRoom] broadcastReveal — firing local tick');
+    setRevealTick(n => n + 1);
+    sendToPeers('reveal');
+  }, [sendToPeers]);
+
+  const broadcastNextRound = useCallback(() => {
+    console.log('[useGameRoom] broadcastNextRound — firing local tick');
+    setNextRoundTick(n => n + 1);
+    sendToPeers('next_round');
+  }, [sendToPeers]);
 
   const broadcastResetVotes = useCallback(() => {
-    if (supabase && channelRef.current) {
-      channelRef.current
-        .send({ type: 'broadcast', event: 'reset_votes', payload: {} })
-        .catch(console.error);
-    } else {
-      // Local-only: fire the tick directly
-      setResetVotesTick((n) => n + 1);
-    }
-  }, []);
+    console.log('[useGameRoom] broadcastResetVotes — firing local tick');
+    setResetVotesTick(n => n + 1);
+    sendToPeers('reset_votes');
+  }, [sendToPeers]);
 
-  return { players, roomGameState, resetVotesTick, trackPlayer, broadcastGameState, broadcastResetVotes };
+  const broadcastTaskType = useCallback((taskType: TaskTypeKey) => {
+    setRemoteTaskType(taskType); // apply locally
+    sendToPeers('task_type_update', { taskType });
+  }, [sendToPeers]);
+
+  return {
+    players,
+    revealTick,
+    nextRoundTick,
+    resetVotesTick,
+    remoteTaskType,
+    trackPlayer,
+    broadcastReveal,
+    broadcastNextRound,
+    broadcastResetVotes,
+    broadcastTaskType,
+  };
 }

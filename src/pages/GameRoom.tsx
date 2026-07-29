@@ -14,11 +14,9 @@ import ResultsSummary from '../components/ResultsSummary';
 import CountdownOverlay from '../components/CountdownOverlay';
 import JoinScreen from '../components/JoinScreen';
 
-/** Consistent DiceBear avatar URL */
 const makeAvatar = (name: string) =>
   `https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`;
 
-// ── Loading Skeleton ─────────────────────────────────────────────────────────
 const LoadingSkeleton = () => (
   <div className="flex flex-col h-screen bg-zinc-900 items-center justify-center gap-6">
     <div className="w-16 h-16 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(59,130,246,0.4)] animate-pulse">
@@ -28,7 +26,6 @@ const LoadingSkeleton = () => (
   </div>
 );
 
-// ── Error Screen ─────────────────────────────────────────────────────────────
 const ErrorScreen = ({ message }: { message: string }) => (
   <div className="flex flex-col h-screen bg-zinc-900 items-center justify-center gap-4 p-6">
     <div className="w-14 h-14 bg-red-950/60 border border-red-800/50 rounded-2xl flex items-center justify-center">
@@ -47,10 +44,10 @@ const ErrorScreen = ({ message }: { message: string }) => (
 const GameRoom = () => {
   const { roomId = '' } = useParams<{ roomId: string }>();
 
-  // ── Game config — loaded from Supabase ──────────────────────────────────
+  // ── Game config ──────────────────────────────────────────────────────────
   const [gameConfig, setGameConfig] = useState<GameConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
-  const [configError, setConfigError] = useState('');
+  const [configError,   setConfigError]   = useState('');
 
   useEffect(() => {
     if (!roomId) return;
@@ -69,9 +66,9 @@ const GameRoom = () => {
           setConfigError('This game room does not exist or has been deleted.');
         } else {
           setGameConfig({
-            id: data.id as string,
-            name: (data.name as string) || 'Untitled Game',
-            deck: (data.deck as DeckKey) || 'STORY',
+            id:       data.id as string,
+            name:     (data.name as string)          || 'Untitled Game',
+            deck:     (data.deck as DeckKey)         || 'DAYS',
             taskType: (data.task_type as TaskTypeKey) || 'BOTH',
           });
         }
@@ -79,18 +76,20 @@ const GameRoom = () => {
       });
   }, [roomId]);
 
-  // ── Session restore from localStorage ───────────────────────────────────
+  // ── Player (single source of truth — no separate myVoteDev/myVoteQa) ─────
+  // RATIONALE: Having voteDev and voteQa in BOTH a separate state variable AND
+  // inside myPlayer creates two sources of truth. When handleVote is called for
+  // QA after Dev, the closure over the separate myVoteDev state may be stale
+  // (still null) if React hasn't committed the previous render yet. Using ONLY
+  // myPlayer and functional updates (setMyPlayer(prev => ...)) means every vote
+  // always reads from the *latest committed* player object, eliminating the race.
+
   const restoredSession = useMemo(() => loadSession(roomId), [roomId]);
 
   const makePlayer = useCallback(
-    (session: { playerId: string; playerName: string; playerAvatar: string; isOrganizer: boolean }): Player => ({
-      id: session.playerId,
-      name: session.playerName,
-      avatar: session.playerAvatar,
-      hasVoted: false,
-      voteDev: null,
-      voteQa: null,
-      isOrganizer: session.isOrganizer,
+    (s: { playerId: string; playerName: string; playerAvatar: string; isOrganizer: boolean }): Player => ({
+      id: s.playerId, name: s.playerName, avatar: s.playerAvatar,
+      hasVoted: false, voteDev: null, voteQa: null, isOrganizer: s.isOrganizer,
     }),
     []
   );
@@ -98,187 +97,242 @@ const GameRoom = () => {
   const [myPlayer, setMyPlayer] = useState<Player | null>(
     restoredSession ? makePlayer(restoredSession) : null
   );
-  const [myVoteDev, setMyVoteDev] = useState<string | null>(null);
-  const [myVoteQa,  setMyVoteQa]  = useState<string | null>(null);
 
-  // ── Game state ───────────────────────────────────────────────────────────
+  // ── Game state ────────────────────────────────────────────────────────────
   const [localGameState, setLocalGameState] = useState<PlayingState>('playing');
-  const [countdown, setCountdown] = useState(5);
+  const [countdown,      setCountdown]      = useState(5);
 
-  // ── Realtime hook ────────────────────────────────────────────────────────
+  // ── Realtime hook ─────────────────────────────────────────────────────────
   const stablePlayerId = myPlayer?.id ?? null;
-  const { players, roomGameState, resetVotesTick, trackPlayer, broadcastGameState, broadcastResetVotes } =
-    useGameRoom(roomId, stablePlayerId);
+  const {
+    players,
+    revealTick,
+    nextRoundTick,
+    resetVotesTick,
+    remoteTaskType,
+    trackPlayer,
+    broadcastReveal,
+    broadcastNextRound,
+    broadcastResetVotes,
+    broadcastTaskType,
+  } = useGameRoom(roomId, stablePlayerId);
 
-  const myPlayerRef = useRef<Player | null>(myPlayer);
-  myPlayerRef.current = myPlayer;
-
-  // ── Track presence on player change ─────────────────────────────────────
+  // ── Canonical presence tracker ────────────────────────────────────────────
+  // trackPlayer is the ONLY place we call channel.track().
+  // It is intentionally NOT called inside setMyPlayer updaters (side-effect
+  // anti-pattern). Every myPlayer state change flows through here.
   useEffect(() => {
     if (myPlayer) trackPlayer(myPlayer);
   }, [myPlayer, trackPlayer]);
 
-  // ── React to game-state broadcasts ──────────────────────────────────────
+  // ── Remote task-type sync (non-organizer) ────────────────────────────────
   useEffect(() => {
-    if (roomGameState === 'countdown' && localGameState !== 'countdown' && localGameState !== 'results') {
-      setLocalGameState('countdown');
-      setCountdown(5);
-    } else if (roomGameState === 'results' && localGameState !== 'results') {
-      setLocalGameState('results');
-    } else if (roomGameState === 'playing' && localGameState !== 'playing') {
-      setLocalGameState('playing');
-      clearMyVotes();
-    }
-  }, [roomGameState, localGameState]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!remoteTaskType || !gameConfig) return;
+    if (remoteTaskType === gameConfig.taskType) return;
+    setGameConfig(prev => prev ? { ...prev, taskType: remoteTaskType } : prev);
+  }, [remoteTaskType]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── React to reset_votes broadcast ──────────────────────────────────────
-  // resetVotesTick increments whenever any client broadcasts reset_votes.
-  // We stay in 'playing' state — only votes are cleared.
-  const prevResetTickRef = useRef(0);
-  useEffect(() => {
-    if (resetVotesTick > prevResetTickRef.current) {
-      prevResetTickRef.current = resetVotesTick;
-      clearMyVotes();
-    }
-  }, [resetVotesTick]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /** Clear local vote state and update presence. */
+  // ── clearMyVotes ──────────────────────────────────────────────────────────
+  // Uses a functional update so it never reads stale closure state.
+  // Does NOT call trackPlayer — the useEffect([myPlayer]) handles that.
   const clearMyVotes = useCallback(() => {
-    setMyVoteDev(null);
-    setMyVoteQa(null);
-    setMyPlayer((prev) => {
+    setMyPlayer(prev => {
       if (!prev) return prev;
       const cleared: Player = { ...prev, hasVoted: false, voteDev: null, voteQa: null };
       saveSession(roomId, {
-        playerId: cleared.id,
-        playerName: cleared.name,
+        playerId:     cleared.id,
+        playerName:   cleared.name,
         playerAvatar: cleared.avatar,
-        isOrganizer: cleared.isOrganizer,
+        isOrganizer:  cleared.isOrganizer,
       });
-      trackPlayer(cleared);
       return cleared;
     });
-  }, [roomId, trackPlayer]);
+  }, [roomId]);
 
-  // ── Countdown timer ──────────────────────────────────────────────────────
+  // ── TICK: reveal ──────────────────────────────────────────────────────────
+  const prevRevealRef = useRef(0);
+  useEffect(() => {
+    if (revealTick <= prevRevealRef.current) return;
+    prevRevealRef.current = revealTick;
+    try {
+      if (localGameState === 'playing') {
+        setLocalGameState('countdown');
+        setCountdown(5);
+      }
+    } catch (err) {
+      console.error('[GameRoom] reveal tick error:', err);
+    }
+  }, [revealTick, localGameState]);
+
+  // ── TICK: next_round ──────────────────────────────────────────────────────
+  const prevNextRoundRef = useRef(0);
+  useEffect(() => {
+    if (nextRoundTick <= prevNextRoundRef.current) return;
+    prevNextRoundRef.current = nextRoundTick;
+    try {
+      setLocalGameState('playing');
+      clearMyVotes();
+    } catch (err) {
+      console.error('[GameRoom] next_round tick error:', err);
+    }
+  }, [nextRoundTick, clearMyVotes]);
+
+  // ── TICK: reset_votes ─────────────────────────────────────────────────────
+  const prevResetRef = useRef(0);
+  useEffect(() => {
+    if (resetVotesTick <= prevResetRef.current) return;
+    prevResetRef.current = resetVotesTick;
+    try {
+      clearMyVotes();
+    } catch (err) {
+      console.error('[GameRoom] reset_votes tick error:', err);
+    }
+  }, [resetVotesTick, clearMyVotes]);
+
+  // ── Countdown timer ───────────────────────────────────────────────────────
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     if (localGameState === 'countdown' && countdown > 0) {
-      timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+      timer = setTimeout(() => setCountdown(c => c - 1), 1000);
     } else if (localGameState === 'countdown' && countdown === 0) {
       setLocalGameState('results');
-      if (myPlayerRef.current?.isOrganizer) broadcastGameState('results');
     }
     return () => clearTimeout(timer);
-  }, [localGameState, countdown, broadcastGameState]);
+  }, [localGameState, countdown]);
 
-  // ── Stats computation ────────────────────────────────────────────────────
+  // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo<Stats | null>(() => {
     if (localGameState !== 'results' || !gameConfig) return null;
-
     const isNonNumeric = NON_NUMERIC_DECKS.includes(gameConfig.deck);
 
     const calculateFor = (type: 'dev' | 'qa'): Stats['dev'] => {
       const rawVotes = players
-        .map((p) => (type === 'dev' ? p.voteDev : p.voteQa))
-        .filter((v): v is string => v !== null); // includes '?' strings
-
-      if (isNonNumeric) {
-        return { mean: null, stdDev: null, rawVotes, numericVotes: null };
-      }
-
-      // Numeric decks: exclude '?' from math
-      const numericVotes = rawVotes
-        .map(voteToNumber)
-        .filter((v): v is number => v !== null);
-
-      if (numericVotes.length === 0) {
-        return { mean: null, stdDev: null, rawVotes, numericVotes: [] };
-      }
-
-      const mean = numericVotes.reduce((a, b) => a + b, 0) / numericVotes.length;
+        .map(p => type === 'dev' ? p.voteDev : p.voteQa)
+        .filter((v): v is string => v !== null);
+      if (isNonNumeric) return { mean: null, stdDev: null, rawVotes, numericVotes: null };
+      const numericVotes = rawVotes.map(voteToNumber).filter((v): v is number => v !== null);
+      if (numericVotes.length === 0) return { mean: null, stdDev: null, rawVotes, numericVotes: [] };
+      const mean     = numericVotes.reduce((a, b) => a + b, 0) / numericVotes.length;
       const variance = numericVotes.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / numericVotes.length;
-      return {
-        mean: parseFloat(mean.toFixed(1)),
-        stdDev: Math.sqrt(variance),
-        rawVotes,
-        numericVotes,
-      };
+      return { mean: parseFloat(mean.toFixed(1)), stdDev: Math.sqrt(variance), rawVotes, numericVotes };
     };
-
     return { dev: calculateFor('dev'), qa: calculateFor('qa') };
   }, [localGameState, players, gameConfig]);
 
-  /** '?' votes and non-numeric decks never show deviation highlight. */
-  const isHighDeviation = (vote: string | null, type: 'dev' | 'qa'): boolean => {
+  const isHighDeviation = useCallback((vote: string | null, type: 'dev' | 'qa'): boolean => {
     if (!vote || vote === '?' || !stats || !gameConfig) return false;
     if (NON_NUMERIC_DECKS.includes(gameConfig.deck)) return false;
     const s = stats[type];
     if (s.mean === null || s.stdDev === null || s.stdDev === 0) return false;
     const n = voteToNumber(vote);
-    if (n === null) return false;
-    return Math.abs(n - s.mean) > s.stdDev;
-  };
+    return n !== null && Math.abs(n - s.mean) > s.stdDev;
+  }, [stats, gameConfig]);
 
-  // ── Event handlers ───────────────────────────────────────────────────────
+  // ── Event handlers ────────────────────────────────────────────────────────
 
-  const handleJoin = (name: string) => {
+  const handleJoin = useCallback((name: string) => {
     const newPlayer: Player = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      avatar: makeAvatar(name.trim()),
-      hasVoted: false,
-      voteDev: null,
-      voteQa: null,
-      isOrganizer: false,
+      id: crypto.randomUUID(), name: name.trim(), avatar: makeAvatar(name.trim()),
+      hasVoted: false, voteDev: null, voteQa: null, isOrganizer: false,
     };
     saveSession(roomId, {
-      playerId: newPlayer.id,
-      playerName: newPlayer.name,
-      playerAvatar: newPlayer.avatar,
-      isOrganizer: false,
+      playerId: newPlayer.id, playerName: newPlayer.name,
+      playerAvatar: newPlayer.avatar, isOrganizer: false,
     });
     setMyPlayer(newPlayer);
-  };
+  }, [roomId]);
 
-  const handleVote = (type: 'dev' | 'qa', value: string) => {
-    if (!myPlayer || !gameConfig) return;
+  /**
+   * handleVote — stale-closure-safe via functional setMyPlayer.
+   *
+   * WHY FUNCTIONAL UPDATE:
+   *   In Dev+QA mode the user clicks Dev then QA. If we computed newVoteDev from
+   *   a separate `myVoteDev` state variable, the QA click's closure would still
+   *   see `myVoteDev = null` (the pre-Dev-click render) if React hasn't fully
+   *   committed the previous render when the QA click fires.
+   *   
+   *   By reading `prev.voteDev` and `prev.voteQa` inside `setMyPlayer(prev => ...)`,
+   *   React guarantees we always see the *latest committed* state, eliminating
+   *   the race condition and the silent vote-overwrite in BOTH mode.
+   */
+  const handleVote = useCallback((type: 'dev' | 'qa', value: string) => {
+    if (!gameConfig) return;
+    try {
+      setMyPlayer(prev => {
+        if (!prev) return prev;
 
-    // Toggle off if same card clicked again
-    const newVoteDev = type === 'dev' ? (myVoteDev === value ? null : value) : myVoteDev;
-    const newVoteQa  = type === 'qa'  ? (myVoteQa  === value ? null : value) : myVoteQa;
+        // Read current votes from prev (guaranteed fresh) not from closure state
+        const newVoteDev = type === 'dev' ? (prev.voteDev === value ? null : value) : prev.voteDev;
+        const newVoteQa  = type === 'qa'  ? (prev.voteQa  === value ? null : value) : prev.voteQa;
 
-    setMyVoteDev(newVoteDev);
-    setMyVoteQa(newVoteQa);
+        let hasVoted = false;
+        if (gameConfig.taskType === 'DEV'  && newVoteDev !== null) hasVoted = true;
+        if (gameConfig.taskType === 'QA'   && newVoteQa  !== null) hasVoted = true;
+        if (gameConfig.taskType === 'BOTH' && (newVoteDev !== null || newVoteQa !== null)) hasVoted = true;
 
-    let hasVoted = false;
-    if (gameConfig.taskType === 'DEV'  && newVoteDev !== null) hasVoted = true;
-    if (gameConfig.taskType === 'QA'   && newVoteQa  !== null) hasVoted = true;
-    if (gameConfig.taskType === 'BOTH' && (newVoteDev !== null || newVoteQa !== null)) hasVoted = true;
+        const updated: Player = { ...prev, voteDev: newVoteDev, voteQa: newVoteQa, hasVoted };
 
-    const updated: Player = { ...myPlayer, voteDev: newVoteDev, voteQa: newVoteQa, hasVoted };
-    setMyPlayer(updated);
-    trackPlayer(updated);
-    saveSession(roomId, {
-      playerId: updated.id,
-      playerName: updated.name,
-      playerAvatar: updated.avatar,
-      isOrganizer: updated.isOrganizer,
-    });
-  };
+        // localStorage is synchronous — safe inside a state updater
+        saveSession(roomId, {
+          playerId:     updated.id,
+          playerName:   updated.name,
+          playerAvatar: updated.avatar,
+          isOrganizer:  updated.isOrganizer,
+        });
 
-  const startReveal  = () => broadcastGameState('countdown');
-  const restartGame  = () => broadcastGameState('playing');
-  const handleReset  = () => broadcastResetVotes();
+        return updated;
+      });
+    } catch (err) {
+      console.error('[GameRoom] handleVote error:', err);
+    }
+  }, [gameConfig, roomId]);
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  const handleTaskTypeChange = useCallback(async (newType: TaskTypeKey) => {
+    if (!gameConfig) return;
+    try {
+      setGameConfig(prev => prev ? { ...prev, taskType: newType } : prev);
+      broadcastTaskType(newType);
+      if (supabase) {
+        await supabase.from('games').update({ task_type: newType }).eq('id', roomId);
+      }
+    } catch (err) {
+      console.error('[GameRoom] handleTaskTypeChange error:', err);
+    }
+  }, [gameConfig, roomId, broadcastTaskType]);
+
+  const handleReveal = useCallback(() => {
+    try { broadcastReveal(); }
+    catch (err) { console.error('[GameRoom] handleReveal error:', err); }
+  }, [broadcastReveal]);
+
+  const handleNextRound = useCallback(() => {
+    try { broadcastNextRound(); }
+    catch (err) { console.error('[GameRoom] handleNextRound error:', err); }
+  }, [broadcastNextRound]);
+
+  const handleReset = useCallback(() => {
+    try { broadcastResetVotes(); }
+    catch (err) { console.error('[GameRoom] handleReset error:', err); }
+  }, [broadcastResetVotes]);
+
+  // ── Render guards ─────────────────────────────────────────────────────────
 
   if (configLoading) return <LoadingSkeleton />;
   if (configError || !gameConfig) return <ErrorScreen message={configError} />;
 
-  const currentDeck = DECKS[gameConfig.deck];
-  const isOrganizer = myPlayer?.isOrganizer ?? false;
-  const needsToJoin = myPlayer === null;
+  const currentDeck  = DECKS[gameConfig.deck];
+  const isOrganizer  = myPlayer?.isOrganizer ?? false;
+  const needsToJoin  = myPlayer === null;
+
+  // anyVoteCast: read from myPlayer directly (single source of truth).
+  // Also include other players' presence so the panel locks when teammates vote.
+  // Using myPlayer.hasVoted (not a separate state variable) means this updates
+  // atomically with the vote itself — no stale-state lag.
+  const anyVoteCast =
+    (myPlayer?.hasVoted === true) ||
+    players.some(p => p.hasVoted && p.id !== myPlayer?.id);
+
+  const bottomPad = gameConfig.taskType === 'BOTH' ? '22rem' : '14rem';
 
   return (
     <div className="flex flex-col h-screen bg-zinc-900">
@@ -286,8 +340,6 @@ const GameRoom = () => {
         gameConfig={gameConfig}
         gameState={localGameState}
         roomId={roomId}
-        onResetVotes={handleReset}
-        onNextRound={restartGame}
         isOrganizer={isOrganizer}
       />
 
@@ -297,7 +349,7 @@ const GameRoom = () => {
         <>
           <main
             className="flex-1 overflow-y-auto relative flex flex-col items-center justify-center"
-            style={{ paddingBottom: gameConfig.taskType === 'BOTH' ? '22rem' : '14rem' }}
+            style={{ paddingBottom: bottomPad }}
           >
             {localGameState === 'countdown' && <CountdownOverlay countdown={countdown} />}
 
@@ -309,7 +361,9 @@ const GameRoom = () => {
               players={players}
               gameState={localGameState}
               gameConfig={gameConfig}
-              onReveal={startReveal}
+              onReveal={handleReveal}
+              onResetVotes={handleReset}
+              onNextRound={handleNextRound}
               isHighDeviation={isHighDeviation}
               isOrganizer={isOrganizer}
             />
@@ -319,9 +373,12 @@ const GameRoom = () => {
             <VotingDock
               gameConfig={gameConfig}
               currentDeck={currentDeck}
-              myVoteDev={myVoteDev}
-              myVoteQa={myVoteQa}
+              myVoteDev={myPlayer?.voteDev ?? null}
+              myVoteQa={myPlayer?.voteQa ?? null}
               onVote={handleVote}
+              onTaskTypeChange={handleTaskTypeChange}
+              isOrganizer={isOrganizer}
+              anyVoteCast={anyVoteCast}
             />
           )}
         </>

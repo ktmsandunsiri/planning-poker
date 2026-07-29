@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { GameConfig, PlayingState } from '../types';
 import { TASK_TYPES, DECK_LABELS } from '../constants';
 import InviteModal from './InviteModal';
@@ -7,13 +8,17 @@ interface GameHeaderProps {
   gameConfig: GameConfig;
   gameState: PlayingState;
   roomId: string;
-  onResetVotes: () => void;
-  onNextRound: () => void;
   isOrganizer: boolean;
 }
 
-const GameHeader = ({ gameConfig, gameState, onResetVotes, onNextRound, isOrganizer }: GameHeaderProps) => {
+const GameHeader = ({ gameConfig, gameState, isOrganizer }: GameHeaderProps) => {
+  const navigate = useNavigate();
   const [showInviteModal, setShowInviteModal] = useState(false);
+
+  const handleNewGame = () => {
+    // Navigate to setup — name will be prefilled from localStorage
+    navigate('/setup');
+  };
 
   return (
     <>
@@ -47,25 +52,14 @@ const GameHeader = ({ gameConfig, gameState, onResetVotes, onNextRound, isOrgani
             Invite
           </button>
 
-          {/* Reset Round — organizer only, during playing */}
-          {gameState === 'playing' && isOrganizer && (
+          {/* New Game — organizer only, visible during playing */}
+          {isOrganizer && gameState === 'playing' && (
             <button
-              onClick={onResetVotes}
-              className="font-gaming flex items-center gap-2 bg-black text-white text-sm uppercase tracking-wider py-2 px-4 rounded-xl border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.8)] hover:shadow-[0_0_20px_rgba(251,113,133,0.3)] hover:border-rose-500 transition-all duration-300 hover:scale-105 active:scale-95"
+              onClick={handleNewGame}
+              className="font-gaming flex items-center gap-2 bg-black text-white text-sm uppercase tracking-wider py-2 px-4 rounded-xl border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.8)] hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:border-emerald-500 transition-all duration-300 hover:scale-105 active:scale-95"
             >
-              <i className="fa-solid fa-eraser text-rose-400" />
-              Reset
-            </button>
-          )}
-
-          {/* Next Round — organizer only, during results */}
-          {gameState === 'results' && isOrganizer && (
-            <button
-              onClick={onNextRound}
-              className="font-gaming flex items-center gap-2 bg-black text-white text-sm uppercase tracking-wider py-2 px-4 rounded-xl border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.8)] hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:border-indigo-400 transition-all duration-300 hover:scale-105 active:scale-95"
-            >
-              <i className="fa-solid fa-rotate-right text-indigo-400" />
-              Next Round
+              <i className="fa-solid fa-plus text-emerald-400" />
+              New Game
             </button>
           )}
         </div>

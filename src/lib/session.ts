@@ -50,3 +50,23 @@ export function clearSession(roomId: string): void {
     // ignore
   }
 }
+
+/**
+ * Read a previously used player name from any saved session.
+ * Used to prefill the "Your Name" field on the setup screen.
+ */
+export function getPlayerName(): string {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k?.startsWith('pp_session_')) continue;
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as PlayerSession;
+      if (parsed.playerName) return parsed.playerName;
+    }
+  } catch {
+    // ignore
+  }
+  return '';
+}

@@ -5,35 +5,72 @@ interface GameBoardProps {
   gameState: PlayingState;
   gameConfig: GameConfig;
   onReveal: () => void;
+  onResetVotes: () => void;
+  onNextRound: () => void;
   isHighDeviation: (vote: string | null, type: 'dev' | 'qa') => boolean;
   isOrganizer: boolean;
 }
 
-const GameBoard = ({ players, gameState, gameConfig, onReveal, isHighDeviation, isOrganizer }: GameBoardProps) => {
+const GameBoard = ({
+  players,
+  gameState,
+  gameConfig,
+  onReveal,
+  onResetVotes,
+  onNextRound,
+  isHighDeviation,
+  isOrganizer,
+}: GameBoardProps) => {
   return (
-    <div className="relative w-full max-w-5xl h-96 flex items-center justify-center mt-8 mb-8">
+    <div className="relative w-full max-w-5xl h-[440px] flex items-center justify-center mt-8 mb-8">
       {/* Table Graphic */}
-      <div className="absolute w-[80%] h-[70%] poker-table rounded-full z-0 flex items-center justify-center">
+      <div className="absolute w-[80%] h-[70%] poker-table rounded-full z-0 flex flex-col items-center justify-center gap-3">
+
+        {/* ── Playing state ── */}
         {gameState === 'playing' && isOrganizer && (
-          <button
-            onClick={onReveal}
-            className="z-10 font-gaming bg-black text-white py-4 px-8 rounded-2xl text-lg uppercase tracking-wider border border-zinc-700 shadow-[0_0_20px_rgba(0,0,0,0.8)] hover:shadow-[0_0_30px_rgba(99,102,241,0.4)] hover:border-indigo-400 transition-all duration-300 hover:scale-110 active:scale-95 flex items-center gap-3"
-          >
-            <i className="fa-solid fa-eye text-indigo-400" />
-            Reveal cards
-          </button>
+          <>
+            <button
+              onClick={onReveal}
+              className="z-10 font-gaming bg-black text-white py-3.5 px-8 rounded-2xl text-base uppercase tracking-wider border border-zinc-700 shadow-[0_0_20px_rgba(0,0,0,0.8)] hover:shadow-[0_0_30px_rgba(99,102,241,0.4)] hover:border-indigo-400 transition-all duration-300 hover:scale-110 active:scale-95 flex items-center gap-3"
+            >
+              <i className="fa-solid fa-eye text-indigo-400" />
+              Reveal cards
+            </button>
+            <button
+              onClick={onResetVotes}
+              className="z-10 font-gaming bg-transparent text-zinc-400 py-1.5 px-5 rounded-xl text-xs uppercase tracking-wider border border-zinc-700/60 hover:border-rose-600 hover:text-rose-400 transition-all duration-200 flex items-center gap-2"
+            >
+              <i className="fa-solid fa-eraser text-xs" />
+              Reset Votes
+            </button>
+          </>
         )}
         {gameState === 'playing' && !isOrganizer && (
           <div className="text-center">
             <p className="text-zinc-300 font-semibold text-sm">Waiting for organizer to reveal…</p>
           </div>
         )}
+
+        {/* ── Results state ── */}
         {gameState === 'results' && (
-          <div className="text-center">
-            <h3 className="text-xl font-bold text-emerald-300 mb-1 drop-shadow-lg">Voting Complete</h3>
-            <p className="text-emerald-400/70 font-medium text-sm">Review the estimates above</p>
+          <div className="text-center flex flex-col items-center gap-3">
+            <div>
+              <h3 className="text-xl font-bold text-emerald-300 mb-0.5 drop-shadow-lg">Voting Complete</h3>
+              <p className="text-emerald-400/70 font-medium text-sm">Review the estimates above</p>
+            </div>
+            {isOrganizer && (
+              <button
+                onClick={onNextRound}
+                className="z-10 font-gaming bg-black text-white py-2.5 px-7 rounded-xl text-sm uppercase tracking-wider border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.8)] hover:shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:border-indigo-400 transition-all duration-300 hover:scale-105 active:scale-95 flex items-center gap-2"
+              >
+                <i className="fa-solid fa-rotate-right text-indigo-400" />
+                Next Round
+              </button>
+            )}
           </div>
         )}
+
+        {/* ── Countdown state ── */}
         {gameState === 'countdown' && (
           <div className="text-center">
             <p className="text-zinc-300 font-semibold text-sm">Revealing cards…</p>
@@ -41,14 +78,14 @@ const GameBoard = ({ players, gameState, gameConfig, onReveal, isHighDeviation, 
         )}
       </div>
 
-      {/* Avatars arranged around table - trigonometric oval distribution */}
+      {/* Avatars arranged around table */}
       {players.map((player, index) => {
         const total = players.length;
         const angle = (index / total) * Math.PI * 2;
-        const rx = 350; // horizontal radius
-        const ry = 175; // vertical radius
+        const rx = 350;
+        const ry = 175;
         const left = `calc(50% + ${Math.cos(angle) * rx}px)`;
-        const top = `calc(50% + ${Math.sin(angle) * ry}px)`;
+        const top  = `calc(50% + ${Math.sin(angle) * ry}px)`;
 
         return (
           <div
@@ -122,13 +159,6 @@ const GameBoard = ({ players, gameState, gameConfig, onReveal, isHighDeviation, 
           </div>
         );
       })}
-
-      {/* Empty state */}
-      {players.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          {/* The table button handles this */}
-        </div>
-      )}
     </div>
   );
 };

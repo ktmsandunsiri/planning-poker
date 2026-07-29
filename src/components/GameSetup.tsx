@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import type { GameConfig, TaskTypeKey, DeckKey } from '../types';
 import { TASK_TYPES, DECK_LABELS } from '../constants';
 import { supabase } from '../lib/supabase';
-import { saveSession } from '../lib/session';
+import { saveSession, getPlayerName } from '../lib/session';
 
-/** Consistent DiceBear avatar URL */
 const avatarUrl = (name: string) =>
   `https://api.dicebear.com/7.x/adventurer-neutral/svg?seed=${encodeURIComponent(name)}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf`;
 
@@ -18,11 +17,12 @@ const GameSetup = () => {
   const [createState, setCreateState] = useState<CreateState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
 
-  const [organizerName, setOrganizerName] = useState('');
+  // Prefill name from any previously saved session
+  const [organizerName, setOrganizerName] = useState(() => getPlayerName());
   const [gameConfig, setGameConfig] = useState<Omit<GameConfig, 'id'>>({
     name: '',
-    deck: 'STORY',
-    taskType: 'BOTH',
+    deck: 'DAYS',       // Default: Days
+    taskType: 'BOTH',   // Default: Dev + QA
   });
 
   const handleCreateGame = async () => {
@@ -72,6 +72,7 @@ const GameSetup = () => {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-900 p-6 relative overflow-hidden">
+      {/* Background glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-600/10 rounded-full blur-[120px] pointer-events-none" />
 
       <div className="w-full max-w-xl bg-zinc-800/80 backdrop-blur-xl rounded-3xl shadow-2xl p-8 animate-pop-in border border-zinc-700 relative z-10">
@@ -108,18 +109,18 @@ const GameSetup = () => {
             />
           </div>
 
-          {/* Deck */}
+          {/* Deck — pill buttons */}
           <div>
-            <label className="block text-sm font-semibold text-zinc-300 mb-2">Deck</label>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <label className="block text-sm font-semibold text-zinc-300 mb-3">Deck</label>
+            <div className="flex flex-wrap gap-2">
               {ALL_DECKS.map((key) => (
                 <button
                   key={key}
                   onClick={() => setGameConfig({ ...gameConfig, deck: key })}
-                  className={`py-2.5 px-3 rounded-xl text-sm font-medium border transition-all text-left ${
+                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
                     gameConfig.deck === key
-                      ? 'bg-indigo-900/50 border-indigo-500 text-indigo-300 shadow-[0_0_15px_rgba(99,102,241,0.2)]'
-                      : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_16px_rgba(99,102,241,0.35)]'
+                      : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
                   }`}
                 >
                   {DECK_LABELS[key]}
@@ -130,16 +131,16 @@ const GameSetup = () => {
 
           {/* Task Estimation Type */}
           <div>
-            <label className="block text-sm font-semibold text-zinc-300 mb-2">Task Estimation Type</label>
-            <div className="grid grid-cols-3 gap-3">
+            <label className="block text-sm font-semibold text-zinc-300 mb-3">Task Estimation Type</label>
+            <div className="flex flex-wrap gap-2">
               {(Object.keys(TASK_TYPES) as TaskTypeKey[]).map((key) => (
                 <button
                   key={key}
                   onClick={() => setGameConfig({ ...gameConfig, taskType: key })}
-                  className={`py-3 px-2 rounded-xl font-medium border text-sm transition-all ${
+                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
                     gameConfig.taskType === key
-                      ? 'bg-indigo-900/50 border-indigo-500 text-indigo-300 shadow-[0_0_15px_rgba(99,102,241,0.2)]'
-                      : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_16px_rgba(99,102,241,0.35)]'
+                      : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
                   }`}
                 >
                   {TASK_TYPES[key]}

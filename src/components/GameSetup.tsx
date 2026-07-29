@@ -103,7 +103,7 @@ const GameSetup = () => {
               type="text"
               maxLength={60}
               className="w-full px-4 py-3 rounded-xl bg-zinc-900 border border-zinc-700 text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder-zinc-500"
-              placeholder="e.g. Sprint 42 Planning"
+              placeholder="e.g. Sprint 205 Planning"
               value={gameConfig.name}
               onChange={(e) => setGameConfig({ ...gameConfig, name: e.target.value })}
             />
@@ -117,11 +117,10 @@ const GameSetup = () => {
                 <button
                   key={key}
                   onClick={() => setGameConfig({ ...gameConfig, deck: key })}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
-                    gameConfig.deck === key
-                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_16px_rgba(99,102,241,0.35)]'
-                      : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
-                  }`}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${gameConfig.deck === key
+                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_16px_rgba(99,102,241,0.35)]'
+                    : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
+                    }`}
                 >
                   {DECK_LABELS[key]}
                 </button>
@@ -137,11 +136,10 @@ const GameSetup = () => {
                 <button
                   key={key}
                   onClick={() => setGameConfig({ ...gameConfig, taskType: key })}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
-                    gameConfig.taskType === key
-                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_16px_rgba(99,102,241,0.35)]'
-                      : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
-                  }`}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${gameConfig.taskType === key
+                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_16px_rgba(99,102,241,0.35)]'
+                    : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200'
+                    }`}
                 >
                   {TASK_TYPES[key]}
                 </button>

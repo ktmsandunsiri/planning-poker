@@ -49,7 +49,7 @@ const GameHeader = ({ gameConfig, gameState, isOrganizer }: GameHeaderProps) => 
             className="font-gaming flex items-center gap-2 bg-black text-white text-sm uppercase tracking-wider py-2 px-4 rounded-xl border border-zinc-700 shadow-[0_0_15px_rgba(0,0,0,0.8)] hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:border-indigo-400 transition-all duration-300 hover:scale-105 active:scale-95"
           >
             <i className="fa-solid fa-user-plus text-indigo-400" />
-            Invite
+            Invite Players
           </button>
 
           {/* New Game — organizer only, visible during playing */}

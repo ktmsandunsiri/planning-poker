@@ -47,7 +47,7 @@ const GameRoom = () => {
   // ── Game config ──────────────────────────────────────────────────────────
   const [gameConfig, setGameConfig] = useState<GameConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
-  const [configError,   setConfigError]   = useState('');
+  const [configError, setConfigError] = useState('');
 
   useEffect(() => {
     if (!roomId) return;
@@ -66,9 +66,9 @@ const GameRoom = () => {
           setConfigError('This game room does not exist or has been deleted.');
         } else {
           setGameConfig({
-            id:       data.id as string,
-            name:     (data.name as string)          || 'Untitled Game',
-            deck:     (data.deck as DeckKey)         || 'DAYS',
+            id: data.id as string,
+            name: (data.name as string) || 'Untitled Game',
+            deck: (data.deck as DeckKey) || 'DAYS',
             taskType: (data.task_type as TaskTypeKey) || 'BOTH',
           });
         }
@@ -100,7 +100,7 @@ const GameRoom = () => {
 
   // ── Game state ────────────────────────────────────────────────────────────
   const [localGameState, setLocalGameState] = useState<PlayingState>('playing');
-  const [countdown,      setCountdown]      = useState(5);
+  const [countdown, setCountdown] = useState(5);
 
   // ── Realtime hook ─────────────────────────────────────────────────────────
   const stablePlayerId = myPlayer?.id ?? null;
@@ -140,10 +140,10 @@ const GameRoom = () => {
       if (!prev) return prev;
       const cleared: Player = { ...prev, hasVoted: false, voteDev: null, voteQa: null };
       saveSession(roomId, {
-        playerId:     cleared.id,
-        playerName:   cleared.name,
+        playerId: cleared.id,
+        playerName: cleared.name,
         playerAvatar: cleared.avatar,
-        isOrganizer:  cleared.isOrganizer,
+        isOrganizer: cleared.isOrganizer,
       });
       return cleared;
     });
@@ -157,7 +157,7 @@ const GameRoom = () => {
     try {
       if (localGameState === 'playing') {
         setLocalGameState('countdown');
-        setCountdown(5);
+        setCountdown(3);
       }
     } catch (err) {
       console.error('[GameRoom] reveal tick error:', err);
@@ -212,7 +212,7 @@ const GameRoom = () => {
       if (isNonNumeric) return { mean: null, stdDev: null, rawVotes, numericVotes: null };
       const numericVotes = rawVotes.map(voteToNumber).filter((v): v is number => v !== null);
       if (numericVotes.length === 0) return { mean: null, stdDev: null, rawVotes, numericVotes: [] };
-      const mean     = numericVotes.reduce((a, b) => a + b, 0) / numericVotes.length;
+      const mean = numericVotes.reduce((a, b) => a + b, 0) / numericVotes.length;
       const variance = numericVotes.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / numericVotes.length;
       return { mean: parseFloat(mean.toFixed(1)), stdDev: Math.sqrt(variance), rawVotes, numericVotes };
     };
@@ -263,21 +263,21 @@ const GameRoom = () => {
 
         // Read current votes from prev (guaranteed fresh) not from closure state
         const newVoteDev = type === 'dev' ? (prev.voteDev === value ? null : value) : prev.voteDev;
-        const newVoteQa  = type === 'qa'  ? (prev.voteQa  === value ? null : value) : prev.voteQa;
+        const newVoteQa = type === 'qa' ? (prev.voteQa === value ? null : value) : prev.voteQa;
 
         let hasVoted = false;
-        if (gameConfig.taskType === 'DEV'  && newVoteDev !== null) hasVoted = true;
-        if (gameConfig.taskType === 'QA'   && newVoteQa  !== null) hasVoted = true;
+        if (gameConfig.taskType === 'DEV' && newVoteDev !== null) hasVoted = true;
+        if (gameConfig.taskType === 'QA' && newVoteQa !== null) hasVoted = true;
         if (gameConfig.taskType === 'BOTH' && (newVoteDev !== null || newVoteQa !== null)) hasVoted = true;
 
         const updated: Player = { ...prev, voteDev: newVoteDev, voteQa: newVoteQa, hasVoted };
 
         // localStorage is synchronous — safe inside a state updater
         saveSession(roomId, {
-          playerId:     updated.id,
-          playerName:   updated.name,
+          playerId: updated.id,
+          playerName: updated.name,
           playerAvatar: updated.avatar,
-          isOrganizer:  updated.isOrganizer,
+          isOrganizer: updated.isOrganizer,
         });
 
         return updated;
@@ -320,9 +320,9 @@ const GameRoom = () => {
   if (configLoading) return <LoadingSkeleton />;
   if (configError || !gameConfig) return <ErrorScreen message={configError} />;
 
-  const currentDeck  = DECKS[gameConfig.deck];
-  const isOrganizer  = myPlayer?.isOrganizer ?? false;
-  const needsToJoin  = myPlayer === null;
+  const currentDeck = DECKS[gameConfig.deck];
+  const isOrganizer = myPlayer?.isOrganizer ?? false;
+  const needsToJoin = myPlayer === null;
 
   // anyVoteCast: read from myPlayer directly (single source of truth).
   // Also include other players' presence so the panel locks when teammates vote.
@@ -332,10 +332,10 @@ const GameRoom = () => {
     (myPlayer?.hasVoted === true) ||
     players.some(p => p.hasVoted && p.id !== myPlayer?.id);
 
-  const bottomPad = gameConfig.taskType === 'BOTH' ? '22rem' : '14rem';
+  const bottomPad = gameConfig.taskType === 'BOTH' ? '4rem' : '6rem';
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-900">
+    <div className="flex flex-col min-h-screen bg-zinc-900">
       <GameHeader
         gameConfig={gameConfig}
         gameState={localGameState}
@@ -348,7 +348,7 @@ const GameRoom = () => {
       ) : (
         <>
           <main
-            className="flex-1 overflow-y-auto relative flex flex-col items-center justify-center"
+            className="flex-1 overflow-y-auto relative flex flex-col items-center"
             style={{ paddingBottom: bottomPad }}
           >
             {localGameState === 'countdown' && <CountdownOverlay countdown={countdown} />}
